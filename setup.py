@@ -87,7 +87,7 @@ setup(
     python_requires=REQUIRES_PYTHON,
     url=URL,
     packages=all_packages,
-    package_dir={"": "."},
+    package_dir={"": ".", "dinotxt": "."},
     package_data={
         "dinotxt": [
             "weights/*.txt.gz",
@@ -106,7 +106,6 @@ setup(
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: Apache Software License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
