@@ -49,7 +49,7 @@ Repository = "https://github.com/vuongnp-eureka/dinotxt"
 Issues = "https://github.com/vuongnp-eureka/dinotxt/issues"
 
 [tool.setuptools]
-packages = ["dinotxt"]
+# Packages will be auto-discovered by setup.py
 
 [tool.setuptools.package-data]
 dinotxt = ["weights/*.txt.gz"]

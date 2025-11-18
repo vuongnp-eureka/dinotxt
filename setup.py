@@ -29,13 +29,21 @@ def get_long_description() -> str:
 
 def get_version() -> str:
     """Extract version from __init__.py"""
-    init_path = HERE / "dinotxt" / "__init__.py"
-    with open(init_path) as f:
-        content = f.read()
-        match = re.search(r'^__version__ = ["\']([^"\']+)["\']', content, re.MULTILINE)
-        if match:
-            return match.group(1)
-    raise RuntimeError("Unable to find version string")
+    # Try both possible locations
+    init_paths = [
+        HERE / "dinotxt" / "__init__.py",  # If dinotxt is a subdirectory
+        HERE / "__init__.py",  # If __init__.py is at root
+    ]
+    
+    for init_path in init_paths:
+        if init_path.exists():
+            with open(init_path) as f:
+                content = f.read()
+                match = re.search(r'^__version__ = ["\']([^"\']+)["\']', content, re.MULTILINE)
+                if match:
+                    return match.group(1)
+    
+    raise RuntimeError(f"Unable to find version string. Checked: {init_paths}")
 
 
 def get_requirements() -> List[str]:
@@ -63,6 +71,12 @@ def get_requirements() -> List[str]:
 version = get_version()
 requirements = get_requirements()
 
+# Find all packages, including the root dinotxt package
+all_packages = find_packages(exclude=["tests", "*.tests", "*.tests.*", "__pycache__"])
+# Ensure 'dinotxt' is included if __init__.py exists at root
+if (HERE / "__init__.py").exists() and "dinotxt" not in all_packages:
+    all_packages.insert(0, "dinotxt")
+
 setup(
     name=NAME,
     version=version,
@@ -72,7 +86,7 @@ setup(
     author=AUTHOR,
     python_requires=REQUIRES_PYTHON,
     url=URL,
-    packages=find_packages(where=".", exclude=["tests", "*.tests", "*.tests.*", "__pycache__"]),
+    packages=all_packages,
     package_dir={"": "."},
     package_data={
         "dinotxt": [
