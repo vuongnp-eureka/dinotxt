@@ -3,13 +3,13 @@
 # This software may be used and distributed in accordance with
 # the terms of the DINOv3 License Agreement.
 
-from typing import Callable, List
+from typing import Callable, List, Tuple
 
 import torch
 from torch import Tensor, nn
 
 
-def cat_keep_shapes(x_list: List[Tensor]) -> tuple[Tensor, List[tuple], List[int]]:
+def cat_keep_shapes(x_list: List[Tensor]) -> Tuple[Tensor, List[Tuple], List[int]]:
     shapes = [x.shape for x in x_list]
     num_tokens = [x.select(dim=-1, index=0).numel() for x in x_list]
     flattened = torch.cat([x.flatten(0, -2) for x in x_list])

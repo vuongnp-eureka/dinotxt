@@ -18,10 +18,10 @@ from .vision_tower import build_vision_model
 @dataclass
 class DINOTxtConfig:
     embed_dim: int
-    vision_backbone_config: str | None = None
-    text_backbone_config: str | None = None
-    vision_backbone_pretrained_weights: str | None = None
-    text_backbone_pretrained_weights: str | None = None
+    vision_backbone_config: Optional[str] = None
+    text_backbone_config: Optional[str] = None
+    vision_backbone_pretrained_weights: Optional[str] = None
+    text_backbone_pretrained_weights: Optional[str] = None
     vision_model_freeze_backbone: bool = True
     vision_model_train_img_size: int = 224
     vision_model_use_class_token: bool = True
