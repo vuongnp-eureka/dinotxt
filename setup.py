@@ -72,10 +72,9 @@ version = get_version()
 requirements = get_requirements()
 
 # Find all packages, including the root dinotxt package
-all_packages = find_packages(exclude=["tests", "*.tests", "*.tests.*", "__pycache__"])
-# Ensure 'dinotxt' is included if __init__.py exists at root
-if (HERE / "__init__.py").exists() and "dinotxt" not in all_packages:
-    all_packages.insert(0, "dinotxt")
+found_packages = find_packages(exclude=["tests", "*.tests", "*.tests.*", "__pycache__"])
+# Prefix all found packages with 'dinotxt.' so they're subpackages
+all_packages = ["dinotxt"] + [f"dinotxt.{pkg}" for pkg in found_packages]
 
 setup(
     name=NAME,
@@ -87,7 +86,10 @@ setup(
     python_requires=REQUIRES_PYTHON,
     url=URL,
     packages=all_packages,
-    package_dir={"": ".", "dinotxt": "."},
+    package_dir={
+        "dinotxt": ".",
+        **{f"dinotxt.{pkg}": pkg.replace(".", "/") for pkg in found_packages}
+    },
     package_data={
         "dinotxt": [
             "weights/*.txt.gz",
