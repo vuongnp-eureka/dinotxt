@@ -14,8 +14,15 @@ from .attention import CausalSelfAttention, SelfAttention
 from .ffn_layers import Mlp
 from .layer_scale import LayerScale
 
-torch._dynamo.config.automatic_dynamic_shapes = False
-torch._dynamo.config.accumulated_cache_size_limit = 1024
+# Configure torch._dynamo if available (PyTorch 2.0+)
+# This is optional and only affects compilation performance
+if hasattr(torch, '_dynamo'):
+    try:
+        torch._dynamo.config.automatic_dynamic_shapes = False
+        torch._dynamo.config.accumulated_cache_size_limit = 1024
+    except AttributeError:
+        # _dynamo exists but config might not be available
+        pass
 
 
 class SelfAttentionBlock(nn.Module):
