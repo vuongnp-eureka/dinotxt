@@ -13,6 +13,53 @@ from torch import Tensor, nn
 from ..utils.utils import cat_keep_shapes, uncat_with_shapes
 
 
+# Compatibility function for scaled_dot_product_attention (PyTorch 2.0+)
+def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None):
+    """
+    Compatibility wrapper for torch.nn.functional.scaled_dot_product_attention.
+    Falls back to manual implementation for older PyTorch versions.
+    """
+    if hasattr(F, 'scaled_dot_product_attention'):
+        # Use native implementation if available (PyTorch 2.0+)
+        return F.scaled_dot_product_attention(
+            q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+        )
+    
+    # Manual implementation for older PyTorch versions
+    # q, k, v: [batch, num_heads, seq_len, head_dim]
+    if scale is None:
+        scale = 1.0 / math.sqrt(q.size(-1))
+    
+    # Compute attention scores
+    attn = (q @ k.transpose(-2, -1)) * scale
+    
+    # Apply causal mask if needed
+    if is_causal:
+        seq_len = q.size(-2)
+        # Create causal mask: upper triangular matrix (excluding diagonal)
+        causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=q.device, dtype=torch.bool), diagonal=1)
+        # Expand mask to match attention shape [batch, num_heads, seq_len, seq_len]
+        if attn.dim() == 4:
+            causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, seq_len]
+        attn = attn.masked_fill(causal_mask, float('-inf'))
+    
+    # Apply attention mask if provided
+    if attn_mask is not None:
+        attn = attn + attn_mask
+    
+    # Softmax
+    attn = F.softmax(attn, dim=-1)
+    
+    # Apply dropout
+    if dropout_p > 0.0:
+        attn = F.dropout(attn, p=dropout_p, training=q.requires_grad)
+    
+    # Apply to values
+    output = attn @ v
+    
+    return output
+
+
 # RoPE-related functions:
 def rope_rotate_half(x: Tensor) -> Tensor:
     # x:   [ x0  x1  x2  x3  x4  x5]
@@ -114,7 +161,7 @@ class SelfAttention(nn.Module):
         q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
         if rope is not None:
             q, k = self.apply_rope(q, k, rope)
-        x = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+        x = scaled_dot_product_attention(q, k, v)
         x = x.transpose(1, 2)
         return x.reshape([B, N, C])
 
@@ -157,7 +204,7 @@ class CausalSelfAttention(nn.Module):
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
         q, k, v = torch.unbind(qkv, 2)
         q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
-        x = torch.nn.functional.scaled_dot_product_attention(
+        x = scaled_dot_product_attention(
             q, k, v, attn_mask=None, dropout_p=self.attn_drop if self.training else 0, is_causal=is_causal
         )
         x = x.transpose(1, 2).contiguous().view(B, N, C)
