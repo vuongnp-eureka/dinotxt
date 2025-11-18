@@ -4,7 +4,7 @@
 # the terms of the DINOv3 License Agreement.
 
 import math
-from typing import Callable, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 from torch import Tensor, nn
 
