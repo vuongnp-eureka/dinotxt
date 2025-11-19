@@ -157,8 +157,18 @@ class SelfAttention(nn.Module):
         k_dtype = k.dtype
         sin, cos = rope
         rope_dtype = sin.dtype
-        q = q.to(dtype=rope_dtype)
-        k = k.to(dtype=rope_dtype)
+        
+        # For FP16, compute RoPE in FP32 for numerical stability (especially on Jetson)
+        use_fp16 = q_dtype == torch.float16 or k_dtype == torch.float16
+        if use_fp16:
+            q = q.float()
+            k = k.float()
+            sin = sin.float()
+            cos = cos.float()
+        else:
+            q = q.to(dtype=rope_dtype)
+            k = k.to(dtype=rope_dtype)
+        
         N = q.shape[-2]
         prefix = N - sin.shape[-2]
         assert prefix >= 0
@@ -168,8 +178,17 @@ class SelfAttention(nn.Module):
         k_prefix = k[:, :, :prefix, :]
         k = rope_apply(k[:, :, prefix:, :], sin, cos)  # [B, head, hw, D//head]
         k = torch.cat((k_prefix, k), dim=-2)  # [B, head, N, D//head]
+        
+        # Cast back to original dtype
         q = q.to(dtype=q_dtype)
         k = k.to(dtype=k_dtype)
+        
+        # Safety check for NaN/Inf
+        if torch.isnan(q).any() or torch.isinf(q).any():
+            q = torch.where(torch.isnan(q) | torch.isinf(q), torch.zeros_like(q), q)
+        if torch.isnan(k).any() or torch.isinf(k).any():
+            k = torch.where(torch.isnan(k) | torch.isinf(k), torch.zeros_like(k), k)
+        
         return q, k
 
     def forward(self, x: Tensor, attn_bias=None, rope: Tensor = None) -> Tensor:
