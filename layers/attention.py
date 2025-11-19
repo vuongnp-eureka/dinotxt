@@ -17,45 +17,85 @@ from ..utils.utils import cat_keep_shapes, uncat_with_shapes
 def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None):
     """
     Compatibility wrapper for torch.nn.functional.scaled_dot_product_attention.
-    Falls back to manual implementation for older PyTorch versions.
+    Falls back to manual implementation for older PyTorch versions or FP16 on Jetson.
     """
-    if hasattr(F, 'scaled_dot_product_attention'):
-        # Use native implementation if available (PyTorch 2.0+)
-        return F.scaled_dot_product_attention(
-            q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale
-        )
+    # Check if we're using FP16 - native implementation may have numerical issues on Jetson
+    use_fp16 = q.dtype == torch.float16 or k.dtype == torch.float16 or v.dtype == torch.float16
     
-    # Manual implementation for older PyTorch versions
+    # Force manual implementation for FP16 to avoid numerical instability on Jetson
+    # The native implementation can have NaN issues with FP16 on some hardware
+    if hasattr(F, 'scaled_dot_product_attention') and not use_fp16:
+        # Use native implementation if available (PyTorch 2.0+) and not FP16
+        try:
+            return F.scaled_dot_product_attention(
+                q, k, v, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+            )
+        except (RuntimeError, ValueError):
+            # Fall back to manual if native fails
+            pass
+    
+    # Manual implementation for older PyTorch versions or FP16 (for numerical stability)
     # q, k, v: [batch, num_heads, seq_len, head_dim]
     if scale is None:
-        scale = 1.0 / math.sqrt(q.size(-1))
+        scale = 1.0 / math.sqrt(float(q.size(-1)))
+    
+    # For FP16, compute in FP32 for better numerical stability, then cast back
+    if use_fp16:
+        q_fp32 = q.float()
+        k_fp32 = k.float()
+        v_fp32 = v.float()
+    else:
+        q_fp32 = q
+        k_fp32 = k
+        v_fp32 = v
     
     # Compute attention scores
-    attn = (q @ k.transpose(-2, -1)) * scale
+    attn = (q_fp32 @ k_fp32.transpose(-2, -1)) * scale
     
     # Apply causal mask if needed
     if is_causal:
-        seq_len = q.size(-2)
+        seq_len = q_fp32.size(-2)
         # Create causal mask: upper triangular matrix (excluding diagonal)
-        causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=q.device, dtype=torch.bool), diagonal=1)
+        causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=q_fp32.device, dtype=torch.bool), diagonal=1)
         # Expand mask to match attention shape [batch, num_heads, seq_len, seq_len]
         if attn.dim() == 4:
             causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, seq_len]
-        attn = attn.masked_fill(causal_mask, float('-inf'))
+        # Use a large negative value instead of -inf for numerical stability
+        attn = attn.masked_fill(causal_mask, -1e9)
     
     # Apply attention mask if provided
     if attn_mask is not None:
+        if attn_mask.dtype != attn.dtype:
+            attn_mask = attn_mask.to(attn.dtype)
         attn = attn + attn_mask
+    
+    # Clamp attention scores for numerical stability (especially important for FP16)
+    attn = torch.clamp(attn, min=-1e9, max=1e9)
     
     # Softmax
     attn = F.softmax(attn, dim=-1)
     
+    # Check for NaN/Inf and replace with zeros (safety check)
+    if torch.isnan(attn).any() or torch.isinf(attn).any():
+        attn = torch.where(torch.isnan(attn) | torch.isinf(attn), torch.zeros_like(attn), attn)
+        # Renormalize after fixing NaN/Inf
+        attn_sum = attn.sum(dim=-1, keepdim=True)
+        attn = attn / (attn_sum + 1e-9)
+    
     # Apply dropout
     if dropout_p > 0.0:
-        attn = F.dropout(attn, p=dropout_p, training=q.requires_grad)
+        attn = F.dropout(attn, p=dropout_p, training=q_fp32.requires_grad)
     
     # Apply to values
-    output = attn @ v
+    output = attn @ v_fp32
+    
+    # Cast back to original dtype if needed
+    if use_fp16:
+        output = output.to(q.dtype)
+    
+    # Final safety check for NaN/Inf in output
+    if torch.isnan(output).any() or torch.isinf(output).any():
+        output = torch.where(torch.isnan(output) | torch.isinf(output), torch.zeros_like(output), output)
     
     return output
 
