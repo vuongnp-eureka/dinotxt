@@ -60,8 +60,14 @@ def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_caus
         # Expand mask to match attention shape [batch, num_heads, seq_len, seq_len]
         if attn.dim() == 4:
             causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, seq_len]
-        # Use a large negative value instead of -inf for numerical stability
-        attn = attn.masked_fill(causal_mask, -1e9)
+        # Use a large negative value that fits in FP16 range (-65504 to 65504)
+        # Use -60000 which is safe for FP16 and effectively masks
+        # Ensure mask_value matches attn dtype to avoid overflow
+        if use_fp16:
+            mask_value = torch.tensor(-60000.0, dtype=attn.dtype, device=attn.device)
+        else:
+            mask_value = -1e9
+        attn = attn.masked_fill(causal_mask, mask_value)
     
     # Apply attention mask if provided
     if attn_mask is not None:
@@ -70,7 +76,10 @@ def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_caus
         attn = attn + attn_mask
     
     # Clamp attention scores for numerical stability (especially important for FP16)
-    attn = torch.clamp(attn, min=-1e9, max=1e9)
+    # FP16 range is approximately -65504 to 65504, so use safe values
+    clamp_min = -60000.0 if use_fp16 else -1e9
+    clamp_max = 60000.0 if use_fp16 else 1e9
+    attn = torch.clamp(attn, min=clamp_min, max=clamp_max)
     
     # Softmax
     attn = F.softmax(attn, dim=-1)
